@@ -73,6 +73,7 @@
       const offline = P.supported && !!navigator.serviceWorker.controller;
       card.appendChild(h('div', { class: 'set-row' }, [h('span', { text: 'Installation' }), h('b', { text: P.standalone() ? 'Application installée' : P.canInstall() ? 'Installable' : 'Navigateur' })]));
       card.appendChild(h('div', { class: 'set-row' }, [h('span', { text: 'Jeu hors ligne' }), h('b', { class: offline ? 'up' : 'dim', text: offline ? 'Disponible sur cet appareil' : (P.supported ? 'Prêt après le prochain chargement' : 'Indisponible (fichier local)') })]));
+      if (TE.Online && TE.Online.count !== null) card.appendChild(h('div', { class: 'set-row' }, [h('span', { text: 'Joueurs en ligne' }), h('b', { class: 'up', text: String(TE.Online.count) })]));
       const ver = h('span', { class: 'dim', text: 'v' + TE.VERSION });
       card.appendChild(h('div', { class: 'set-row' }, [h('span', { text: 'Version' }), ver]));
       P.build().then((b) => { if (b && b.indexOf('__') !== 0) ver.textContent = 'v' + TE.VERSION + ' · build ' + b; });

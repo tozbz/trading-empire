@@ -30,6 +30,8 @@
 .cl-conflict, .cl-error { color: var(--down); }
 .cl-offline { color: var(--amber, #ffb627); }
 
+.st-online { color: var(--up); white-space: nowrap; }
+
 /* ---------- settings ---------- */
 .cloud-row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
 .cloud-row .inp { flex: 1 1 180px; min-width: 0; }
