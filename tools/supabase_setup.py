@@ -50,8 +50,11 @@ def main():
         raise SystemExit('SUPABASE_ACCESS_TOKEN manquant')
     orgs = call('GET', '/organizations')
     if not orgs:
-        raise SystemExit('Aucune organisation Supabase sur ce compte')
-    org = orgs[0]
+        # brand-new Supabase account: create its (free) organization
+        org = call('POST', '/organizations', {'name': 'Trading Empire'})
+        log('organisation créée')
+    else:
+        org = orgs[0]
     log('organisation:', org.get('name'))
     projects = call('GET', '/projects')
     proj = next((p for p in projects if p.get('name') == NAME), None)
@@ -92,14 +95,24 @@ def main():
         'disable_signup': False,
         'external_email_enabled': True,
         'mailer_otp_exp': 3600,
+        'password_min_length': 8,
         'mailer_otp_length': 6,
         'mailer_subjects_magic_link': 'Votre code TRADING EMPIRE',
         'mailer_templates_magic_link_content': EMAIL_HTML,
         'mailer_subjects_confirmation': 'Votre code TRADING EMPIRE',
         'mailer_templates_confirmation_content': EMAIL_HTML,
     }
-    call('PATCH', '/projects/%s/config/auth' % ref, auth)
-    log('auth configurée (site, redirections, e-mail avec code)')
+    try:
+        call('PATCH', '/projects/%s/config/auth' % ref, auth)
+        log('auth configurée (site, redirections, e-mail avec code)')
+    except SystemExit as e:
+        if 'Email template' not in str(e):
+            raise
+        # free tier + default e-mail provider: templates are locked (magic link only) — keep the rest
+        for k in [k for k in auth if k.startswith('mailer_subjects') or k.startswith('mailer_templates') or k == 'mailer_otp_length']:
+            auth.pop(k)
+        call('PATCH', '/projects/%s/config/auth' % ref, auth)
+        log('auth configurée (site, redirections) — e-mails par défaut : lien magique')
     # public keys only
     keys = call('GET', '/projects/%s/api-keys' % ref)
     pub = None

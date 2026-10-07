@@ -5,7 +5,7 @@
 (function (TE) {
   'use strict';
   TE.CloudConfig = {
-    url: '',
-    key: '',
+    url: 'https://mxyfsjwucyqmpzjczfbf.supabase.co',
+    key: 'sb_publishable_LCPqm_e0_9KWnrbPv_Mt6w_D516irFZ',
   };
 })(window.TE);

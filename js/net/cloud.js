@@ -76,7 +76,7 @@
   }
   function toB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
   function fromB64(b64) { const bin = atob(b64); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return u8; }
-  /** gzip + base64 when the browser can (≈ 5× smaller), plain JSON otherwise. The local TE1 format is untouched. */
+  /** gzip + base64 when the browser can (≈ 2× smaller: 406 KB → 195 KB), plain JSON otherwise. The local TE1 format is untouched. */
   async function pack(json) {
     if (typeof CompressionStream === 'function') {
       try {
@@ -127,10 +127,17 @@
   }
 
   /* ---------------- auth (Supabase GoTrue REST) ---------------- */
+  /** Identity carried by the access token itself (lets a magic-link landing work even before any network call). */
+  function jwtUser(tok) {
+    try {
+      const p = JSON.parse(decodeURIComponent(escape(atob(tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))));
+      return p && p.sub ? { id: p.sub, email: p.email || '' } : null;
+    } catch (e) { return null; }
+  }
   function storeSession(d) {
     if (!d || !d.access_token || !d.refresh_token) return null;
     const exp = d.expires_at || Math.floor(Date.now() / 1000) + (d.expires_in || 3600);
-    session = { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: exp, user: d.user ? { id: d.user.id, email: d.user.email } : (session && session.user) || null };
+    session = { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: exp, user: d.user ? { id: d.user.id, email: d.user.email } : jwtUser(d.access_token) || (session && session.user) || null };
     jset(LS_AUTH, session);
     return session;
   }
@@ -156,10 +163,21 @@
   C.email = () => (session && session.user && session.user.email) || '';
   C.userId = () => (session && session.user && session.user.id) || null;
 
-  /** Sends the sign-in e-mail (6-digit code + magic link back to this page). Creates the account if needed. */
-  C.sendCode = async function (email) {
+  /** Sends the sign-in e-mail (magic link back to this page; a 6-digit code too when the e-mail template has one).
+   * Creates the account on first use. */
+  C.sendLink = async function (email) {
     const redirect = location.href.split('#')[0].split('?')[0];
     await http('POST', '/auth/v1/otp?redirect_to=' + encodeURIComponent(redirect), { email: String(email).trim(), create_user: true }, { auth: false });
+  };
+  C.sendCode = C.sendLink;
+  /** Optional password (set once signed in): sign in without e-mail, e.g. in the iPhone home-screen app. */
+  C.loginPassword = async function (email, password) {
+    const d = await http('POST', '/auth/v1/token?grant_type=password', { email: String(email).trim(), password: String(password) }, { auth: false });
+    if (!storeSession(d)) throw new Error('Connexion refusée.');
+    afterLogin();
+  };
+  C.setPassword = async function (password) {
+    await http('PUT', '/auth/v1/user', { password: String(password) });
   };
   C.verifyCode = async function (email, code) {
     const d = await http('POST', '/auth/v1/verify', { type: 'email', email: String(email).trim(), token: String(code).replace(/\s+/g, '') }, { auth: false });
@@ -171,7 +189,8 @@
     session = null;
     lsDel(LS_AUTH);
     setStatus('off');
-    if (t) { try { await fetch(cfg.url + '/auth/v1/logout', { method: 'POST', headers: { apikey: cfg.key, Authorization: 'Bearer ' + t } }); } catch (e) { /* offline: the token simply expires */ } }
+    // scope=local: only this device is signed out (the default would sign out every device of the account)
+    if (t) { try { await fetch(cfg.url + '/auth/v1/logout?scope=local', { method: 'POST', headers: { apikey: cfg.key, Authorization: 'Bearer ' + t } }); } catch (e) { /* offline: the token simply expires */ } }
   };
   /** Magic link landing: the tokens arrive in the URL fragment. Read them once, then clean the address bar. */
   function readMagicLink() {
@@ -211,6 +230,17 @@
     return { nw, era: s.run.era, eraName: era.name || '', earned: s.run.earnings || 0, playtime: Math.round(s.profile.playtime || 0), runTime: Math.round(s.run.time || 0), p1: pr.p1 || 0, p2: pr.p2 || 0, p3: pr.p3 || 0, savedAt: s.savedAt || Date.now(), version: TE.VERSION };
   }
   C.summarize = summarize;
+  /** Progress fingerprint of a stored save (to tell "really played since the last sync" from "re-saved on close"). */
+  function snapOf(json) {
+    try {
+      const o = JSON.parse(json);
+      const pr = (o.profile && o.profile.prestige) || {};
+      return { playtime: Math.round((o.profile && o.profile.playtime) || 0), runTime: Math.round((o.run && o.run.time) || 0), p1: pr.p1 || 0, p2: pr.p2 || 0, p3: pr.p3 || 0 };
+    } catch (e) { return null; }
+  }
+  function sameProgress(a, b) {
+    return !!(a && b) && a.p1 === b.p1 && a.p2 === b.p2 && a.p3 === b.p3 && Math.abs(a.playtime - b.playtime) <= 30 && Math.abs(a.runTime - b.runTime) <= 60;
+  }
 
   /* ---------------- status indicator ---------------- */
   const LABEL = { disabled: '', off: '', idle: '☁ Synchronisé', pending: '☁ À synchroniser', syncing: '☁ Synchronisation…', offline: '⚠ Hors ligne', conflict: '⚠ Conflit', error: '⚠ Erreur cloud' };
@@ -256,7 +286,8 @@
     if (pill) { pill.className = cls; pill.textContent = txt; pill.title = title; pill.hidden = !txt || C.status === 'idle'; }
     // refresh the settings card, but never while the player is typing an e-mail / code in it
     const card = document.getElementById('cloud-card');
-    if (card && card.isConnected && (C.loggedIn() || card.dataset.mode !== 'out')) renderCard(card);
+    const typing = card && document.activeElement && card.contains(document.activeElement) && document.activeElement.tagName === 'INPUT';
+    if (card && card.isConnected && !typing && (C.loggedIn() || card.dataset.mode !== 'out')) renderCard(card);
   }
   function openSettings() { if (TE.UI && TE.UI.go) TE.UI.go('settings'); }
   setInterval(() => { if (document.getElementById('app') && !document.getElementById('st-cloud')) renderIndicator(); }, 2000);
@@ -318,7 +349,7 @@
         return 'conflict';
       }
       pendingConflict = null;
-      saveSync({ rev: res.revision, checksum: cs, forceNext: false, cloudAt: res.updated_at });
+      saveSync({ rev: res.revision, checksum: cs, snap: snapOf(json), forceNext: false, cloudAt: res.updated_at });
       setStatus('idle', 'révision ' + res.revision + ' · ' + fmtDate(Date.now()));
       return 'ok';
     } catch (e) {
@@ -343,8 +374,8 @@
     if (backupId) {
       // a restored backup becomes the newest version at the next sync; the current cloud save is archived first
       const cur = row || (await remoteMeta());
-      saveSync({ rev: cur ? cur.revision : 0, checksum: null, forceNext: true });
-    } else saveSync({ rev: full.revision, checksum: full.checksum, forceNext: false });
+      saveSync({ rev: cur ? cur.revision : 0, checksum: null, snap: null, forceNext: true });
+    } else saveSync({ rev: full.revision, checksum: full.checksum, snap: snapOf(json), forceNext: false });
     pendingConflict = null;
     if (TE.Tabs) TE.Tabs.replaced();
     location.reload();
@@ -427,13 +458,15 @@
       return 'pushed';
     }
     const lcs = json ? await sha256(json) : null;
-    if (lcs && lcs === row.checksum) { pendingConflict = null; saveSync({ rev: row.revision, checksum: lcs, forceNext: false }); setStatus('idle', 'révision ' + row.revision); return 'same'; }
+    if (lcs && lcs === row.checksum) { pendingConflict = null; saveSync({ rev: row.revision, checksum: lcs, snap: snapOf(json), forceNext: false }); setStatus('idle', 'révision ' + row.revision); return 'same'; }
     if (st && st.rev === row.revision) {
       pendingConflict = null;
       if (lcs && lcs !== st.checksum) await push({ base: row.revision }); else setStatus('idle', 'révision ' + row.revision);
       return 'pushed';
     }
-    const localChanged = !st || !lcs || lcs !== st.checksum;
+    // the cloud moved on since this device's last sync: did this device really play since then?
+    // (the save written when the game was closed differs by a few seconds only: that is not "local progress")
+    const localChanged = !st || !lcs || (lcs !== st.checksum && !sameProgress(snapOf(json), st.snap));
     const kind = !json ? 'cloud-only' : (st && !localChanged ? 'cloud-newer' : st ? 'conflict' : 'first');
     const choice = await askChoice(kind, row, json ? summarize() : null);
     try { await applyChoice(choice, row); } catch (e) { fail(e); if (TE.UI) TE.UI.toast({ title: 'SAUVEGARDE CLOUD', text: e.message, kind: 'bad', icon: '⚠', dur: 7000 }); }
@@ -515,27 +548,32 @@
       return;
     }
     if (!C.loggedIn()) {
-      card.appendChild(h('p', { class: 'dim small', html: '<b>Mode local</b> : la partie reste dans ce navigateur. Activez la synchronisation pour retrouver la même partie sur tous vos appareils (PC, téléphone, tablette). Aucun mot de passe : un code vous est envoyé par e-mail.' }));
+      card.appendChild(h('p', { class: 'dim small', html: '<b>Mode local</b> : la partie reste dans ce navigateur. Activez la synchronisation pour retrouver la même partie sur tous vos appareils (PC, téléphone, tablette). Connexion par lien envoyé par e-mail.' }));
       if (C.linkError) card.appendChild(h('div', { class: 'down small', text: C.linkError }));
       const email = h('input', { class: 'inp', type: 'email', placeholder: 'votre@email.fr', value: cardStep.email, autocomplete: 'email' });
-      const sendBtn = h('button', { class: 'btn btn-primary', text: cardStep.sent ? 'Renvoyer le code' : 'ACTIVER LA SYNCHRONISATION', on: { click: async () => {
-        const v = email.value.trim();
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { cardStep.err = 'Adresse e-mail invalide.'; renderCard(card); return; }
-        cardStep.email = v; cardStep.err = ''; cardStep.msg = 'Envoi…'; renderCard(card);
-        try { await C.sendCode(v); cardStep.sent = true; cardStep.msg = 'E-mail envoyé à ' + v + '. Saisissez le code à 6 chiffres (ou cliquez sur le lien de l’e-mail sur cet appareil).'; }
-        catch (e) { cardStep.msg = ''; cardStep.err = e.net ? 'Pas de connexion Internet.' : (e.status === 429 ? 'Trop de demandes : réessayez dans quelques minutes.' : e.message); }
+      const valid = () => { const v = email.value.trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { cardStep.err = 'Adresse e-mail invalide.'; cardStep.msg = ''; renderCard(card); return null; } cardStep.email = v; return v; };
+      const explain = (e) => (e.net ? 'Pas de connexion Internet.' : e.status === 429 ? 'Trop de demandes : réessayez dans quelques minutes (2 e-mails par heure maximum).'
+        : /not authorized|not allowed/i.test(e.message) ? 'Cette adresse ne peut pas recevoir d’e-mail de connexion : utilisez l’adresse de votre compte.' : e.message);
+      const sendBtn = h('button', { class: 'btn btn-primary', text: cardStep.sent ? 'Renvoyer le lien' : 'ACTIVER LA SYNCHRONISATION', on: { click: async () => {
+        const v = valid(); if (!v) return;
+        cardStep.err = ''; cardStep.msg = 'Envoi…'; renderCard(card);
+        try { await C.sendLink(v); cardStep.sent = true; cardStep.msg = 'E-mail envoyé à ' + v + '. Ouvrez-le sur cet appareil et touchez le lien de connexion : vous revenez dans le jeu, connecté.'; }
+        catch (e) { cardStep.msg = ''; cardStep.err = explain(e); }
         renderCard(card);
       } } });
       card.appendChild(h('div', { class: 'cloud-row' }, [email, sendBtn]));
-      if (cardStep.sent) {
-        const code = h('input', { class: 'inp cloud-code', type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: 'Code reçu', maxlength: 10 });
-        card.appendChild(h('div', { class: 'cloud-row' }, [code, h('button', { class: 'btn btn-primary', text: 'SE CONNECTER', on: { click: async () => {
-          cardStep.err = ''; cardStep.msg = 'Vérification…'; renderCard(card);
-          try { await C.verifyCode(cardStep.email, code.value); cardStep = { email: '', sent: false, msg: '', err: '' }; }
-          catch (e) { cardStep.msg = ''; cardStep.err = e.net ? 'Pas de connexion Internet.' : 'Code invalide ou expiré.'; }
-          renderCard(card);
-        } } })]));
-      }
+      // optional password (once set from a signed-in device): needed by the iPhone home-screen app, handy elsewhere
+      const pw = h('input', { class: 'inp', type: 'password', placeholder: 'Mot de passe (si vous en avez défini un)', autocomplete: 'current-password' });
+      card.appendChild(h('div', { class: 'cloud-row' }, [pw, h('button', { class: 'btn btn-ghost', text: 'Se connecter', on: { click: async () => {
+        const v = valid(); if (!v) return;
+        if (!pw.value) { cardStep.err = 'Saisissez votre mot de passe, ou utilisez le lien par e-mail.'; renderCard(card); return; }
+        cardStep.err = ''; cardStep.msg = 'Connexion…';
+        const val = pw.value;
+        renderCard(card);
+        try { await C.loginPassword(v, val); cardStep = { email: '', sent: false, msg: '', err: '' }; }
+        catch (e) { cardStep.msg = ''; cardStep.err = e.net ? 'Pas de connexion Internet.' : (e.status === 400 ? 'E-mail ou mot de passe incorrect (aucun mot de passe défini ? utilisez le lien par e-mail).' : explain(e)); }
+        renderCard(card);
+      } } })]));
       if (cardStep.msg) card.appendChild(h('div', { class: 'small up', text: cardStep.msg }));
       if (cardStep.err) card.appendChild(h('div', { class: 'small down', text: cardStep.err }));
       return;
@@ -551,6 +589,17 @@
     row.appendChild(h('button', { class: 'btn btn-ghost', text: 'Versions précédentes', on: { click: () => backupsModal() } }));
     row.appendChild(h('button', { class: 'btn btn-ghost', text: 'Se déconnecter', on: { click: () => UI.confirm({ title: 'Se déconnecter ?', body: 'La partie reste sur cet appareil et dans le cloud. La synchronisation s’arrête jusqu’à la prochaine connexion.', yes: 'Se déconnecter', onYes: () => C.logout() }) } }));
     card.appendChild(row);
+    // optional password: lets the player sign in without e-mail (required for the iPhone home-screen app)
+    const npw = h('input', { class: 'inp', type: 'password', placeholder: 'Nouveau mot de passe (8 caractères min.)', autocomplete: 'new-password' });
+    const pmsg = h('div', { class: 'small' });
+    card.appendChild(h('div', { class: 'dim small', style: 'margin-top:8px', text: 'Facultatif : définissez un mot de passe pour vous connecter sans e-mail (indispensable pour l’application installée sur iPhone / iPad).' }));
+    card.appendChild(h('div', { class: 'cloud-row' }, [npw, h('button', { class: 'btn btn-ghost', text: 'Définir le mot de passe', on: { click: async () => {
+      if ((npw.value || '').length < 8) { pmsg.className = 'small down'; pmsg.textContent = '8 caractères minimum.'; return; }
+      pmsg.className = 'small dim'; pmsg.textContent = 'Enregistrement…';
+      try { await C.setPassword(npw.value); npw.value = ''; pmsg.className = 'small up'; pmsg.textContent = 'Mot de passe enregistré : vous pouvez vous connecter avec e-mail + mot de passe sur vos autres appareils.'; }
+      catch (e) { pmsg.className = 'small down'; pmsg.textContent = e.net ? 'Pas de connexion Internet.' : (e.message || 'Échec.'); }
+    } } })]));
+    card.appendChild(pmsg);
   }
   C.card = function () {
     const card = TE.UI.h('div', { class: 'card', id: 'cloud-card' });

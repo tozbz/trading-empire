@@ -50,7 +50,8 @@ def service_key():
 def main():
     keep = '--keep' in sys.argv
     svc = service_key()
-    admin = {'apikey': svc, 'Authorization': 'Bearer ' + svc}
+    # new-style secret keys go in the apikey header only; legacy service_role JWTs also as Bearer
+    admin = {'apikey': svc} if svc.startswith('sb_secret_') else {'apikey': svc, 'Authorization': 'Bearer ' + svc}
     users = []
     for tag in ('a', 'b'):
         email = 'te-selftest-%s-%s@example.com' % (tag, secrets.token_hex(4))
