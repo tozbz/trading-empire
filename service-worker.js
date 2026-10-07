@@ -76,7 +76,15 @@ async function networkFirst(request, isNav) {
     const fresh = await withTimeout(fetch(isNav ? request.url : request, { cache: 'no-cache', credentials: 'same-origin' }), isNav ? NAV_TIMEOUT : ASSET_TIMEOUT);
     if (fresh && fresh.ok && fresh.type === 'basic') {
       const key = isNav ? 'index.html' : request;
-      cache.put(key, fresh.clone()).catch(() => {});
+      const copy = fresh.clone();
+      (async () => {
+        // keep one entry per file: drop the variants of other builds (?v=…-<build>) so the cache stays bounded
+        if (!isNav) {
+          const olds = await cache.keys(request, { ignoreSearch: true });
+          await Promise.all(olds.filter((r) => r.url !== request.url).map((r) => cache.delete(r)));
+        }
+        await cache.put(key, copy);
+      })().catch(() => {});
     }
     return fresh;
   } catch (e) {
