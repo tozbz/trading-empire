@@ -124,7 +124,8 @@ details.adv[open] { display: flex; flex-direction: column; gap: 6px; }
 .gain i { font-style: normal; color: var(--dim); }
 .upg .gain, .item .gain { margin-top: 2px; }
 .upg-filters { display: flex; flex-wrap: wrap; gap: 6px; }
-.rec-badge { position: absolute; top: -7px; left: 8px; font: 700 8.5px var(--f-mono); letter-spacing: 0.14em; padding: 1px 6px; border-radius: 3px; background: var(--gold); color: #05070b; box-shadow: 0 0 10px rgba(255, 211, 107, 0.5); z-index: 2; }
+/* inside the node (nodes clip their overflow), on the cost line: "15 RP ……… ★ RECOMMANDÉ" */
+.rec-badge { position: absolute; right: 6px; bottom: 6px; font: 700 9px/1.4 var(--f-mono); letter-spacing: 0.06em; padding: 1px 5px; border-radius: 3px; background: var(--gold); color: #05070b; box-shadow: 0 0 8px rgba(255, 211, 107, 0.45); z-index: 2; white-space: nowrap; }
 .rnode.rec { box-shadow: 0 0 0 1px var(--gold), 0 0 16px rgba(255, 211, 107, 0.35); }
 .legend.away { opacity: 0.6; border-style: dashed; }
 
