@@ -154,8 +154,34 @@
     try { json = decodeURIComponent(escape(atob(b64))); } catch (e) { throw new Error('Ce texte n’est pas une sauvegarde TRADING EMPIRE valide.'); }
     return parse(json);
   };
+  /* 2.1: before the local save is replaced (import, cloud save, reset), a copy of it is kept in a separate key.
+   * Returns false when the copy could not be written (storage full): callers must then abort the replacement. */
+  const SAFETY = 'tradingEmpire.safety.v1';
+  Save.SAFETY_KEY = SAFETY;
+  Save.keepSafetyCopy = function (reason) {
+    let cur = null;
+    try { cur = localStorage.getItem(KEY); } catch (e) { return false; }
+    if (!cur) return true;
+    try { localStorage.setItem(SAFETY, JSON.stringify({ at: Date.now(), reason: reason || '', json: cur })); return true; } catch (e) { return false; }
+  };
+  Save.safetyCopy = function () {
+    try { const v = localStorage.getItem(SAFETY); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  };
+  /** Puts the safety copy back (the current save becomes the new safety copy, so this can be undone too). */
+  Save.restoreSafetyCopy = function () {
+    const c = Save.safetyCopy();
+    if (!c || !c.json) return false;
+    parse(c.json); // throws if unreadable: nothing is touched
+    const cur = localStorage.getItem(KEY);
+    Save.disabled = true;
+    if (cur) localStorage.setItem(SAFETY, JSON.stringify({ at: Date.now(), reason: 'avant restauration', json: cur }));
+    localStorage.setItem(KEY, c.json);
+    location.reload();
+    return true;
+  };
   Save.importString = function (str) {
     const obj = Save.decode(str);
+    if (!Save.keepSafetyCopy('avant import')) throw new Error('Espace de stockage insuffisant pour garder une copie de la partie actuelle : import annulé.');
     Save.disabled = true;
     localStorage.setItem(KEY, JSON.stringify(obj));
     location.reload();
@@ -170,6 +196,7 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   };
   Save.reset = function () {
+    Save.keepSafetyCopy('avant réinitialisation'); // an accidental reset can be undone from the settings
     Save.disabled = true;
     try { localStorage.removeItem(KEY); localStorage.removeItem(BACKUP); } catch (e) { /* ignore */ }
     location.reload();

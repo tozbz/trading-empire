@@ -77,8 +77,13 @@
       if (started || btn.disabled) return;
       started = true;
       document.removeEventListener('keydown', onKey);
-      const res = isNew ? null : TE.Offline.onBoot();
-      start(isNew, res);
+      const launch = () => {
+        const res = isNew ? null : TE.Offline.onBoot();
+        start(isNew, res);
+      };
+      // 2.1: with cloud sync enabled, local and cloud saves are compared before the game starts (never merged)
+      if (TE.Cloud && TE.Cloud.gate) TE.Cloud.gate(launch);
+      else launch();
     };
     const onKey = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
     btn.addEventListener('click', go);

@@ -1,0 +1,56 @@
+/* 2.1 — distribution layer: PWA update banner, cloud-sync indicator and dialogs. Same art direction as the game. */
+
+/* ---------- "new version" banner ---------- */
+.pwa-update {
+  position: fixed; left: 50%; bottom: calc(44px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 9500;
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-radius: 8px;
+  background: rgba(6, 10, 16, 0.96); border: 1px solid rgba(var(--accent-rgb), 0.6); box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.25);
+  font: 700 11px var(--f-mono); letter-spacing: 0.12em; color: #fff; max-width: calc(100vw - 16px); box-sizing: border-box;
+}
+.pwa-update .pwa-u-go { background: rgba(var(--accent-rgb), 0.18); border: 1px solid var(--accent); color: #fff; border-radius: 4px; padding: 6px 10px; font: inherit; cursor: pointer; }
+.pwa-update .pwa-u-go:hover { background: rgba(var(--accent-rgb), 0.32); }
+.pwa-update .pwa-u-x { background: none; border: 0; color: var(--dim); font-size: 16px; cursor: pointer; padding: 0 4px; }
+
+/* ---------- cloud indicator (status bar) ---------- */
+.cloud-ind { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--dim); white-space: nowrap; }
+.cloud-ind:hover { color: #fff; }
+.cloud-ind.cl-idle { color: var(--up); }
+.cloud-ind.cl-syncing, .cloud-ind.cl-pending { color: var(--accent); }
+.cloud-ind.cl-offline { color: var(--amber, #ffb627); }
+.cloud-ind.cl-conflict, .cloud-ind.cl-error { color: var(--down); }
+#cloud-pill { display: none; }
+@media (max-width: 760px) {
+  #cloud-pill:not([hidden]) {
+    display: block; position: fixed; left: 8px; bottom: calc(66px + env(safe-area-inset-bottom, 0px)); z-index: 9100;
+    padding: 4px 8px; border-radius: 10px; font: 600 10.5px var(--f-mono); background: rgba(6, 10, 16, 0.9); border: 1px solid currentColor;
+  }
+  .pwa-update { bottom: calc(66px + env(safe-area-inset-bottom, 0px)); font-size: 10px; letter-spacing: 0.06em; }
+}
+.cl-idle { color: var(--up); }
+.cl-conflict, .cl-error { color: var(--down); }
+.cl-offline { color: var(--amber, #ffb627); }
+
+/* ---------- settings ---------- */
+.cloud-row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.cloud-row .inp { flex: 1 1 180px; min-width: 0; }
+.cloud-code { letter-spacing: 0.3em; font-family: var(--f-mono); }
+.safety-row { margin-top: 8px; gap: 8px; }
+
+/* ---------- choice dialog ---------- */
+.modal-cloud { max-width: 640px; }
+.cc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.cc-col { border: 1px solid rgba(120, 150, 190, 0.25); border-radius: 8px; padding: 10px 12px; background: rgba(255, 255, 255, 0.02); }
+.cc-col.cc-best { border-color: rgba(var(--accent-rgb), 0.7); box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.15); }
+.cc-k { font: 700 11px var(--f-mono); letter-spacing: 0.2em; color: var(--accent); }
+.cc-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px; background: rgba(var(--accent-rgb), 0.18); color: #fff; font: 700 9px var(--f-mono); letter-spacing: 0.1em; vertical-align: middle; }
+.cc-when { color: var(--dim); font-size: 12px; margin: 2px 0 6px; }
+.cc-nw { font: 700 22px var(--f-mono); color: #fff; }
+.cc-sub { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
+.cc-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; border-top: 1px dashed rgba(120, 150, 190, 0.15); }
+.cc-row span { color: var(--dim); }
+.cc-row b { text-align: right; }
+@media (max-width: 560px) { .cc-grid { grid-template-columns: 1fr; } }
+
+.bk-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 50vh; overflow-y: auto; }
+.bk-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(120, 150, 190, 0.2); font-size: 12.5px; }
+.bk-row.cur { border-color: rgba(var(--accent-rgb), 0.6); }

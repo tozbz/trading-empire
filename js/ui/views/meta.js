@@ -312,7 +312,10 @@
           h('button', { class: 'btn btn-ghost', text: 'Exporter', on: { click: () => exportModal() } }),
           h('button', { class: 'btn btn-ghost', text: 'Importer', on: { click: () => importModal() } }),
           h('button', { class: 'btn btn-danger', text: 'Réinitialiser la sauvegarde', on: { click: () => resetModal() } })]),
-        h('div', { class: 'dim small', text: 'Sauvegarde automatique dans ce navigateur (localStorage). Exportez régulièrement pour garder une copie de secours.' })]),
+        h('div', { class: 'dim small', text: 'Sauvegarde automatique dans ce navigateur (localStorage). Exportez régulièrement pour garder une copie de secours.' }),
+        safetyRow()]),
+      TE.Cloud ? TE.Cloud.card() : null,
+      TE.PWA ? TE.PWA.card() : null,
       h('div', { class: 'card about' }, [h('div', { class: 'card-h' }, [h('span', { text: 'À propos' })]),
         h('p', { html: '<b>TRADING EMPIRE</b> v' + TE.VERSION + ' — <i>Bâtir. Trader. Dominer.</i>' }),
         h('p', { class: 'dim small', text: 'Ceci est un jeu. Chaque marché, entreprise, cryptomonnaie, actualité et investisseur est fictif et simulé dans votre navigateur. Rien ici ne passe d’ordre réel, ne se connecte à un courtier ou à un wallet, ni n’utilise d’argent réel — et rien de tout cela n’est une méthode pour gagner de l’argent.' })]),
@@ -334,13 +337,33 @@
     UI.modal({ title: 'Importer une sauvegarde', body: (body) => {
       const ta = h('textarea', { class: 'inp code', placeholder: 'Collez votre sauvegarde ici (elle commence par TE1:)' });
       const err = h('div', { class: 'down small' });
+      // 2.1: the exported .txt file can also be picked directly (handy on phones)
+      const file = h('input', { type: 'file', accept: '.txt,text/plain', hidden: true, on: { change: () => {
+        const f = file.files && file.files[0];
+        if (!f) return;
+        const rd = new FileReader();
+        rd.onload = () => { ta.value = String(rd.result || '').trim(); err.textContent = ''; };
+        rd.onerror = () => { err.textContent = 'Lecture du fichier impossible.'; };
+        rd.readAsText(f);
+      } } });
       body.appendChild(ta);
+      body.appendChild(file);
       body.appendChild(err);
-      body.appendChild(h('div', { class: 'btn-row' }, [h('button', { class: 'btn btn-danger', text: 'Importer et écraser la partie actuelle', on: { click: () => {
-        try { TE.Save.decode(ta.value); } catch (e) { err.textContent = 'Sauvegarde invalide : ' + e.message; return; }
-        UI.confirm({ title: 'Écraser la partie actuelle ?', body: 'Votre progression actuelle sera remplacée par la sauvegarde importée.', yes: 'Importer', danger: true, onYes: () => TE.Save.importString(ta.value) });
-      } } })]));
+      body.appendChild(h('div', { class: 'btn-row' }, [
+        h('button', { class: 'btn btn-ghost', text: 'Choisir un fichier .txt', on: { click: () => file.click() } }),
+        h('button', { class: 'btn btn-danger', text: 'Importer et écraser la partie actuelle', on: { click: () => {
+          try { TE.Save.decode(ta.value); } catch (e) { err.textContent = 'Sauvegarde invalide : ' + e.message; return; }
+          UI.confirm({ title: 'Écraser la partie actuelle ?', body: 'Votre progression actuelle sera remplacée par la sauvegarde importée. Une copie de sécurité de la partie actuelle est gardée (PARAMÈTRES → Sauvegarde).', yes: 'Importer', danger: true, onYes: () => { try { TE.Save.importString(ta.value); } catch (e) { err.textContent = e.message; } } });
+        } } })]));
     }, buttons: [{ label: 'Annuler', cls: 'btn-ghost' }] });
+  }
+  /** 2.1: the copy kept before the last import / cloud load / reset, with a one-click restore. */
+  function safetyRow() {
+    const c = TE.Save.safetyCopy ? TE.Save.safetyCopy() : null;
+    if (!c || !c.json) return null;
+    const when = new Date(c.at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return h('div', { class: 'set-row safety-row' }, [h('span', { class: 'small', text: 'Copie de sécurité locale : ' + when + (c.reason ? ' (' + c.reason + ')' : '') }),
+      h('button', { class: 'btn btn-ghost btn-xs', text: 'Restaurer', on: { click: () => UI.confirm({ title: 'Restaurer la copie de sécurité ?', body: 'La partie actuelle sera remplacée par la copie du ' + when + '. La partie actuelle devient à son tour la copie de sécurité.', yes: 'Restaurer', danger: true, onYes: () => { try { TE.Save.restoreSafetyCopy(); } catch (e) { UI.toast({ text: 'Copie illisible : ' + e.message, kind: 'bad', icon: '⚠' }); } } }) } })]);
   }
   function resetModal() {
     UI.modal({ title: '<span class="down">RÉINITIALISATION COMPLÈTE</span>', cls: 'modal-sm', body: (body) => {
