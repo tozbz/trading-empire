@@ -7,7 +7,7 @@
 
   S.defaultSettings = () => ({
     sound: true, volume: 0.55, animations: true, uiHz: 10, notation: 'standard', confirmations: true, autosave: 30,
-    theme: 'cyber', botMarkers: true, tutorial: true, scanlines: true, turbo: 1, autoBuy: { bots: true, upgrades: true, research: true, firm: true },
+    theme: 'cyber', botMarkers: true, newsMarkers: true, tutorial: true, scanlines: true, turbo: 1, autoBuy: { bots: true, upgrades: true, research: true, firm: true },
   });
 
   S.createProfile = () => ({

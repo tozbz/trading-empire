@@ -35,6 +35,10 @@ jobs:
             if [ -e "$f" ]; then cp -r "$f" _site/; fi
           done
           if [ -f _site/service-worker.js ]; then sed -i "s/__BUILD_ID__/${BUILD}/g" _site/service-worker.js; fi
+          # every deployment gets its own asset URLs (?v=2.1.0 -> ?v=2.1.0-<build>): no browser can keep running
+          # a stale script or stylesheet from its HTTP / memory cache after an update
+          sed -i -E "s/\?v=([0-9][0-9.]*)\"/?v=\1-${BUILD}\"/g" _site/index.html
+          grep -c "?v=.*-${BUILD}" _site/index.html
           printf '{"build":"%s","commit":"%s"}\n' "$BUILD" "$GITHUB_SHA" > _site/build.json
           touch _site/.nojekyll
           echo "Build $BUILD"

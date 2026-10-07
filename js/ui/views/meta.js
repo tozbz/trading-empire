@@ -301,7 +301,7 @@
         select('Thème', 'theme', [['cyber', 'Cyber (cyan)'], ['amber', 'Terminal (ambre)'], ['phosphor', 'Phosphore (vert)']], applyBody),
         select('Format des nombres', 'notation', [['standard', 'Standard (K, M, B, T, Qa…)'], ['scientific', 'Scientifique (1,23e15)'], ['engineering', 'Ingénieur (123e12)']], () => { TE.U.notation = st.notation; }),
         select('Rafraîchissement de l’interface', 'uiHz', [[5, '5 Hz (économie de batterie)'], [10, '10 Hz (par défaut)'], [20, '20 Hz'], [30, '30 Hz']]),
-        toggle('Animations et effets', 'animations', applyBody), toggle('Lignes de balayage CRT', 'scanlines', applyBody), toggle('Afficher les trades des bots sur le graphique', 'botMarkers')]),
+        toggle('Animations et effets', 'animations', applyBody), toggle('Lignes de balayage CRT', 'scanlines', applyBody), toggle('Afficher les trades des bots sur le graphique', 'botMarkers'), toggle('Repères des annonces sur le graphique (petits points)', 'newsMarkers')]),
       h('div', { class: 'card' }, [h('div', { class: 'card-h' }, [h('span', { text: 'Jeu' })]),
         toggle('Confirmations pour les actions facultatives', 'confirmations'), toggle('Astuces du tutoriel', 'tutorial'),
         select('Sauvegarde automatique', 'autosave', [[0, 'Désactivée'], [15, 'Toutes les 15 s'], [30, 'Toutes les 30 s'], [60, 'Toutes les 60 s'], [120, 'Toutes les 2 min']]),

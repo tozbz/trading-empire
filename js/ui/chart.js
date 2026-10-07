@@ -317,20 +317,20 @@
     // trade markers
     if (a.marks) {
       ctx.textAlign = 'center';
+      let lastNewsX = -1e9;
       a.marks.forEach((m) => {
         const k = built.idx(m.n);
         if (k < startIdx || k > endIdx) return;
         const x = xOf(k);
         if (m.t === 'N') {
-          // V2: news / announcement impact — a dashed vertical line with a lightning tag
-          const col = m.d > 0 ? C.up : m.d < 0 ? C.down : C.amber;
-          ctx.strokeStyle = col; ctx.globalAlpha = 0.45; ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, top + 14); ctx.lineTo(Math.round(x) + 0.5, bottom); ctx.stroke();
-          ctx.setLineDash([]); ctx.globalAlpha = 1;
-          ctx.font = '700 10px "JetBrains Mono", monospace';
-          ctx.fillStyle = col;
-          ctx.fillText('⚡' + (cw > 5 && m.lb ? ' ' + String(m.lb).slice(0, 14) : ''), x + 2, top + 22);
-          ctx.font = '11px "JetBrains Mono", Consolas, monospace';
+          // news / announcement impact: a small discreet dot on the top edge (2.1: no more lightning bolts nor
+          // full-height dashed lines); close announcements share one dot; can be hidden in the settings
+          if (src.newsMarks === false || x - lastNewsX < 8) return;
+          lastNewsX = x;
+          ctx.fillStyle = m.d > 0 ? C.up : m.d < 0 ? C.down : C.amber;
+          ctx.globalAlpha = 0.75;
+          ctx.beginPath(); ctx.arc(x, top + 4, 2.2, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = 1;
         } else if (m.t === 'L') {
           const y = Math.max(yOf(cs[k][2]), yOf(m.p)) + 12;
           tri(ctx, x, y, 6, 1, C.up);

@@ -39,7 +39,7 @@
     const p = chartPrefs();
     const lg = s.run.legendary && s.run.legendary.asset === id && s.run.time < s.run.legendary.until;
     return {
-      a, def, lines, tf: p.tf || 1, botMarks: s.settings.botMarkers,
+      a, def, lines, tf: p.tf || 1, botMarks: s.settings.botMarkers, newsMarks: s.settings.newsMarkers !== false,
       ind: {
         sma: TE.Mods.has('ind.sma') && p.sma, bb: TE.Mods.has('ind.bb') && p.bb, rsi: TE.Mods.has('ind.rsi') && p.rsi,
         regime: TE.Mods.has('ind.regime') ? TE.Market.regimeView(id) : null,
