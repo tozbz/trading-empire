@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trading Empire</title>
+  <meta name="description" content="TRADING EMPIRE — un jeu idle / tycoon financier. Partez de 100 $ et finissez par posséder l’économie mondiale. Tous les marchés sont fictifs et simulés.">
+  <meta name="theme-color" content="#05070b">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2305070b'/%3E%3Cpath d='M10 50 L54 14 L54 50 Z' fill='%2319e6ff'/%3E%3Cpath d='M14 50 L30 36 L38 42 L54 26' stroke='%2319f58c' stroke-width='5' fill='none'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css?v=2.0.0">
+  <link rel="stylesheet" href="css/views.css?v=2.0.0">
+  <link rel="stylesheet" href="css/v2.css?v=2.0.0">
+</head>
+<body class="theme-cyber scan">
+  <!-- Launch screen -->
+  <div id="boot">
+    <div class="boot-grid"></div>
+    <div class="boot-inner">
+      <div class="boot-logo"><span class="logo-mark">◢</span><span class="logo-a">TRADING</span><span class="logo-b">EMPIRE</span></div>
+      <div class="boot-tag">BÂTIR. TRADER. DOMINER.</div>
+      <div id="boot-sub" class="boot-sub">De 100 $ à l’économie mondiale.</div>
+      <div id="boot-lines" class="boot-lines"></div>
+      <button id="boot-enter" class="boot-enter" disabled>[ ENTRER SUR LE MARCHÉ ]</button>
+      <div class="boot-foot">Un jeu idle financier · tous les marchés sont fictifs et simulés · aucun argent réel, aucun ordre réel</div>
+    </div>
+  </div>
+
+  <!-- Application -->
+  <div id="app" hidden>
+    <header id="topbar"></header>
+    <div id="ticker"><div class="ticker-track"></div></div>
+    <div id="crisisbar" hidden></div>
+    <div id="shell">
+      <nav id="nav"></nav>
+      <main id="main"></main>
+      <aside id="side"></aside>
+    </div>
+    <footer id="status"></footer>
+  </div>
+
+  <!-- Overlays -->
+  <div id="screen-flash"></div>
+  <div id="fx-layer"></div>
+  <canvas id="fx-canvas"></canvas>
+  <div id="banner-root"></div>
+  <div id="toasts"></div>
+  <div id="modal-root"></div>
+  <div id="coach" hidden></div>
+  <div id="tooltip" hidden></div>
+
+  <!-- Core -->
+  <script src="js/core/namespace.js?v=2.0.0"></script>
+  <script src="js/core/utils.js?v=2.0.0"></script>
+  <script src="js/core/bus.js?v=2.0.0"></script>
+  <!-- Data (content is fully data-driven) -->
+  <script src="js/data/markets.js?v=2.0.0"></script>
+  <script src="js/data/bots.js?v=2.0.0"></script>
+  <script src="js/data/upgrades.js?v=2.0.0"></script>
+  <script src="js/data/research.js?v=2.0.0"></script>
+  <script src="js/data/firm.js?v=2.0.0"></script>
+  <script src="js/data/empire.js?v=2.0.0"></script>
+  <script src="js/data/events.js?v=2.0.0"></script>
+  <script src="js/data/news.js?v=2.0.0"></script>
+  <script src="js/data/progression.js?v=2.0.0"></script>
+  <script src="js/data/achievements.js?v=2.0.0"></script>
+  <script src="js/data/prestige.js?v=2.0.0"></script>
+  <script src="js/data/world.js?v=2.0.0"></script>
+  <!-- Engine -->
+  <script src="js/core/modifiers.js?v=2.0.0"></script>
+  <script src="js/core/state.js?v=2.0.0"></script>
+  <script src="js/systems/market.js?v=2.0.0"></script>
+  <script src="js/systems/agents.js?v=2.0.0"></script>
+  <script src="js/systems/economy.js?v=2.0.0"></script>
+  <script src="js/systems/trading.js?v=2.0.0"></script>
+  <script src="js/systems/bots.js?v=2.0.0"></script>
+  <script src="js/systems/firm.js?v=2.0.0"></script>
+  <script src="js/systems/fund.js?v=2.0.0"></script>
+  <script src="js/systems/empire.js?v=2.0.0"></script>
+  <script src="js/systems/events.js?v=2.0.0"></script>
+  <script src="js/systems/contracts.js?v=2.0.0"></script>
+  <script src="js/systems/world.js?v=2.0.0"></script>
+  <script src="js/systems/progression.js?v=2.0.0"></script>
+  <script src="js/systems/prestige.js?v=2.0.0"></script>
+  <script src="js/core/save.js?v=2.0.0"></script>
+  <script src="js/core/loop.js?v=2.0.0"></script>
+  <!-- UI -->
+  <script src="js/ui/dom.js?v=2.0.0"></script>
+  <script src="js/ui/audio.js?v=2.0.0"></script>
+  <script src="js/ui/chart.js?v=2.0.0"></script>
+  <script src="js/ui/office.js?v=2.0.0"></script>
+  <script src="js/ui/components.js?v=2.0.0"></script>
+  <script src="js/ui/layout.js?v=2.0.0"></script>
+  <script src="js/ui/views/market.js?v=2.0.0"></script>
+  <script src="js/ui/views/automation.js?v=2.0.0"></script>
+  <script src="js/ui/views/firm.js?v=2.0.0"></script>
+  <script src="js/ui/views/finance.js?v=2.0.0"></script>
+  <script src="js/ui/views/meta.js?v=2.0.0"></script>
+  <script src="js/ui/views/office.js?v=2.0.0"></script>
+  <script src="js/ui/views/evolution.js?v=2.0.0"></script>
+  <script src="js/ui/daily.js?v=2.0.0"></script>
+  <script src="js/ui/debug.js?v=2.0.0"></script>
+  <script src="js/main.js?v=2.0.0"></script>
+</body>
+</html>

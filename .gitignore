@@ -1,0 +1,30 @@
+# Secrets / local environment — never versioned
+.env
+.env.*
+*.pem
+*.key
+.dev.vars
+
+# Claude Code local files, editor and OS clutter
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Tooling caches
+node_modules/
+.wrangler/
+.netlify/
+.vercel/
+supabase/.temp/
+supabase/.branches/
+.cache/
+*.log
+*.tmp
+
+# Simulation / test scratch
+sim/
+scratch/
+tmp/

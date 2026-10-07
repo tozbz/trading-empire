@@ -1,0 +1,493 @@
+/* Canvas candlestick chart: OHLC + volume, zoom/pan, timeframes, SMA / Bollinger / RSI,
+ * entry/exit markers, bot activity, position / SL / TP / liquidation / order lines (SL/TP draggable). */
+(function (TE) {
+  'use strict';
+  const U = TE.U, D = TE.Data;
+
+  function Chart(container, opts) {
+    this.opts = opts || {};
+    this.el = container;
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'chart-canvas';
+    container.appendChild(this.canvas);
+    this.ctx = this.canvas.getContext('2d');
+    this.zoom = this.opts.zoom || 96;
+    this.offset = 0;
+    this.tf = 1;
+    this.hover = null;
+    this.drag = null;
+    this.pickMode = null;
+    this.lastDraw = 0;
+    this.lines = [];
+    this.w = 0; this.h = 0;
+    this.readColors();
+    this.resize();
+    const self = this;
+    if (window.ResizeObserver) new ResizeObserver(() => { self.resize(); self.draw(true); }).observe(container);
+    else window.addEventListener('resize', () => { self.resize(); self.draw(true); });
+    this.bind();
+  }
+  TE.Chart = Chart;
+
+  Chart.prototype.readColors = function () {
+    const cs = getComputedStyle(document.body);
+    const g = (k, d) => (cs.getPropertyValue(k) || '').trim() || d;
+    this.c = {
+      up: g('--up', '#19f58c'), down: g('--down', '#ff3d68'), grid: g('--chart-grid', 'rgba(120,150,190,0.07)'), axis: g('--dim', '#7f8ea3'),
+      text: g('--text', '#d6e2f0'), accent: g('--accent', '#19e6ff'), amber: g('--amber', '#ffb627'), violet: g('--violet', '#a77bff'),
+      bg: g('--panel', '#0b1017'), mute: g('--mute', '#4d5b6e'),
+    };
+  };
+  Chart.prototype.resize = function () {
+    const r = this.el.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    this.w = Math.max(50, r.width);
+    this.h = Math.max(50, r.height);
+    this.canvas.width = Math.round(this.w * dpr);
+    this.canvas.height = Math.round(this.h * dpr);
+    this.canvas.style.width = this.w + 'px';
+    this.canvas.style.height = this.h + 'px';
+    this.dpr = dpr;
+  };
+
+  Chart.prototype.bind = function () {
+    const cv = this.canvas;
+    const self = this;
+    cv.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const f = e.deltaY > 0 ? 1.12 : 1 / 1.12;
+      self.zoom = U.clamp(self.zoom * f, 20, 360);
+      self.draw(true);
+    }, { passive: false });
+    const pos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    cv.addEventListener('mousedown', (e) => {
+      const p = pos(e);
+      if (self.pickMode) { const price = self.yToPrice(p.y); const fn = self.pickMode; self.pickMode = null; cv.style.cursor = ''; fn(price); return; }
+      const line = self.lineAt(p.y);
+      if (line && line.drag) self.drag = { type: 'line', which: line.drag };
+      else self.drag = { type: 'pan', x0: p.x, off0: self.offset };
+    });
+    window.addEventListener('mouseup', () => { self.drag = null; });
+    cv.addEventListener('mousemove', (e) => {
+      const p = pos(e);
+      self.hover = p;
+      if (self.drag && self.drag.type === 'pan') {
+        self.offset = U.clamp(self.drag.off0 + (p.x - self.drag.x0) / self.cw, 0, Math.max(0, (self.maxLen || 0) - 10));
+      } else if (self.drag && self.drag.type === 'line' && self.opts.onDragLine) {
+        self.opts.onDragLine(self.drag.which, self.yToPrice(p.y));
+      }
+      const l = self.lineAt(p.y);
+      cv.style.cursor = self.pickMode ? 'crosshair' : l && l.drag ? 'ns-resize' : self.drag ? 'grabbing' : 'crosshair';
+      self.draw(true);
+    });
+    cv.addEventListener('mouseleave', () => { self.hover = null; self.draw(true); });
+    cv.addEventListener('dblclick', () => { self.offset = 0; self.zoom = self.opts.zoom || 96; self.draw(true); });
+    let tx = null;
+    cv.addEventListener('touchstart', (e) => { if (e.touches.length === 1) tx = { x: e.touches[0].clientX, off0: self.offset }; }, { passive: true });
+    cv.addEventListener('touchmove', (e) => {
+      if (!tx || e.touches.length !== 1) return;
+      self.offset = U.clamp(tx.off0 + (e.touches[0].clientX - tx.x) / self.cw, 0, Math.max(0, (self.maxLen || 0) - 10));
+      self.draw(true);
+    }, { passive: true });
+    cv.addEventListener('touchend', () => { tx = null; });
+  };
+  Chart.prototype.lineAt = function (y) {
+    for (let i = 0; i < this.lines.length; i++) if (Math.abs(this.lines[i].y - y) <= 6) return this.lines[i];
+    return null;
+  };
+  Chart.prototype.yToPrice = function (y) {
+    if (!this.scale) return 0;
+    const s = this.scale;
+    return s.max - ((y - s.top) / (s.bottom - s.top)) * (s.max - s.min);
+  };
+  Chart.prototype.setTf = function (tf) { this.tf = tf; this.offset = 0; this.draw(true); };
+  Chart.prototype.reset = function () { this.offset = 0; this.draw(true); };
+
+  /* ---------------- candle assembly ---------------- */
+  function buildCandles(a, tf, need) {
+    const closed = a.c;
+    // 6th field: share of the volume generated by the player (V2)
+    const cur = [a.o, a.h, a.l, a.p, a.v, a.v > 0 && a.pv > 0 ? Math.min(1, a.pv / a.v) : 0];
+    if (tf === 1) {
+      const start = Math.max(0, closed.length - need);
+      const cs = closed.slice(start);
+      cs.push(cur);
+      const len = cs.length;
+      return { cs, idx: (n) => n - (a.n - (len - 1)) };
+    }
+    if (tf === 5) {
+      const base = a.n - closed.length;
+      const start = Math.max(0, closed.length - need * 5 - 5);
+      const cs = [];
+      let curG = null, g = null;
+      const merge = (k, gi) => {
+        const gg = Math.floor(gi / 5);
+        if (gg !== curG) { curG = gg; g = [k[0], k[1], k[2], k[3], k[4], k[5] || 0]; cs.push(g); }
+        else {
+          if (k[1] > g[1]) g[1] = k[1]; if (k[2] < g[2]) g[2] = k[2]; g[3] = k[3];
+          const nv = g[4] + k[4];
+          g[5] = nv > 0 ? ((g[5] || 0) * g[4] + (k[5] || 0) * k[4]) / nv : 0;
+          g[4] = nv;
+        }
+      };
+      for (let i = start; i < closed.length; i++) merge(closed[i], base + i);
+      merge(cur, a.n);
+      const len = cs.length;
+      return { cs, idx: (n) => Math.floor(n / 5) - Math.floor(a.n / 5) + len - 1 };
+    }
+    // macro (30s candles)
+    const cs = (a.mc || []).slice(-need);
+    const pvTot = (a.mpv || 0) + (a.pv || 0), vTot = (a.mv || 0) + a.v;
+    const partial = a.mk > 0 ? [a.mo, Math.max(a.mh, a.h), Math.min(a.ml, a.l), a.p, vTot, vTot > 0 ? Math.min(1, pvTot / vTot) : 0] : cur;
+    cs.push(partial);
+    const len = cs.length;
+    const startCur = a.n - (a.mk || 0);
+    return { cs, idx: (n) => (n >= startCur ? len - 1 : len - 1 - Math.ceil((startCur - n) / 15)) };
+  }
+  function sma(cs, n, i) {
+    if (i < n - 1) return null;
+    let s = 0; for (let k = i - n + 1; k <= i; k++) s += cs[k][3];
+    return s / n;
+  }
+  function stdev(cs, n, i, m) {
+    let s = 0; for (let k = i - n + 1; k <= i; k++) { const d = cs[k][3] - m; s += d * d; }
+    return Math.sqrt(s / n);
+  }
+  function rsi(cs, n, i) {
+    if (i < n) return null;
+    let g = 0, l = 0;
+    for (let k = i - n + 1; k <= i; k++) { const d = cs[k][3] - cs[k - 1][3]; if (d > 0) g += d; else l -= d; }
+    if (l === 0) return 100;
+    const rs = g / l;
+    return 100 - 100 / (1 + rs);
+  }
+  function niceStep(range, target) {
+    const raw = range / target;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+  }
+
+  /* ---------------- draw ---------------- */
+  Chart.prototype.draw = function (force) {
+    const now = performance.now();
+    if (!force && now - this.lastDraw < 33) return;
+    this.lastDraw = now;
+    const src = this.opts.source && this.opts.source();
+    const ctx = this.ctx;
+    const W = this.w, H = this.h;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    if (!src || !src.a) return;
+    const a = src.a, def = src.def;
+    const tf = src.tf || this.tf;
+    const ind = src.ind || {};
+    const padR = 70, padB = 18, padT = 8;
+    const rsiH = ind.rsi ? Math.max(50, Math.round(H * 0.17)) : 0;
+    const plotW = W - padR;
+    const top = padT + 4, bottom = H - padB - rsiH - (rsiH ? 6 : 2);
+    const zoom = Math.round(this.zoom);
+    const need = zoom + Math.ceil(this.offset) + 60;
+    const built = buildCandles(a, tf, need);
+    const cs = built.cs;
+    this.maxLen = cs.length;
+    const rightGap = this.offset < 0.5 ? 4 : 0;
+    const cw = plotW / (zoom + rightGap);
+    this.cw = cw;
+    const off = Math.min(this.offset, Math.max(0, cs.length - 10));
+    const endIdx = cs.length - 1 - Math.floor(off);
+    const fo = off - Math.floor(off);
+    const startIdx = Math.max(0, endIdx - zoom - 1);
+    const xOf = (k) => plotW - (endIdx - k + 0.5 + rightGap - fo) * cw;
+    // price range
+    let max = -Infinity, min = Infinity, vmax = 0;
+    for (let k = startIdx; k <= endIdx; k++) { const c = cs[k]; if (c[1] > max) max = c[1]; if (c[2] < min) min = c[2]; if (c[4] > vmax) vmax = c[4]; }
+    const smaOn = ind.sma, bbOn = ind.bb;
+    const smaA = [], smaB = [], bbU = [], bbL = [];
+    if (smaOn || bbOn) {
+      for (let k = startIdx; k <= endIdx; k++) {
+        const s20 = sma(cs, 20, k);
+        if (smaOn) { smaA[k] = s20; smaB[k] = sma(cs, 50, k); }
+        if (bbOn && s20 !== null) { const sd = stdev(cs, 20, k, s20); bbU[k] = s20 + 2 * sd; bbL[k] = s20 - 2 * sd; if (bbU[k] > max) max = bbU[k]; if (bbL[k] < min) min = bbL[k]; }
+      }
+    }
+    const range0 = Math.max(max - min, max * 0.0005);
+    (src.lines || []).forEach((ln) => {
+      if (!(ln.price > 0)) return;
+      const lim = ln.kind === 'liq' ? 1.2 : 0.6;
+      if (ln.price > max && ln.price < max + range0 * lim) max = ln.price;
+      if (ln.price < min && ln.price > min - range0 * lim) min = ln.price;
+    });
+    const pad = (max - min) * 0.07 || max * 0.001;
+    max += pad; min -= pad;
+    if (min < 0) min = 0;
+    this.scale = { max, min, top, bottom };
+    const yOf = (p) => top + ((max - p) / (max - min)) * (bottom - top);
+    const dec = U.priceDec(a.p);
+    const C = this.c;
+
+    // grid + price axis
+    ctx.font = '11px "JetBrains Mono", Consolas, monospace';
+    ctx.textBaseline = 'middle';
+    const step = niceStep(max - min, Math.max(3, Math.floor((bottom - top) / 55)));
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+    ctx.fillStyle = C.axis;
+    ctx.textAlign = 'left';
+    for (let p = Math.ceil(min / step) * step; p <= max; p += step) {
+      const y = Math.round(yOf(p)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke();
+      ctx.fillText(U.price(p, dec), plotW + 6, y);
+    }
+    // time axis
+    const secPer = D.CANDLE_SEC * (tf === 1 ? 1 : tf === 5 ? 5 : 15);
+    const every = Math.max(1, Math.ceil(90 / cw));
+    ctx.textAlign = 'center';
+    for (let k = endIdx; k >= startIdx; k -= every) {
+      const x = Math.round(xOf(k)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+      const ago = (cs.length - 1 - k) * secPer;
+      ctx.fillText(ago === 0 ? 'maint.' : '-' + (ago >= 120 ? Math.round(ago / 60) + ' min' : ago + ' s'), x, H - padB / 2 - (rsiH ? 0 : 0) + (rsiH ? 0 : 0));
+    }
+    // volume
+    const volTop = bottom - (bottom - top) * 0.17;
+    const bw = Math.max(1, cw * 0.68);
+    for (let k = startIdx; k <= endIdx; k++) {
+      const c = cs[k];
+      const x = xOf(k);
+      const vh = vmax > 0 ? (c[4] / vmax) * (bottom - volTop) : 0;
+      ctx.fillStyle = c[3] >= c[0] ? C.up : C.down;
+      ctx.globalAlpha = 0.16;
+      ctx.fillRect(x - bw / 2, bottom - vh, bw, vh);
+      // V2: the part of the bar that is YOUR volume
+      const ps = c[5] || 0;
+      if (ps > 0.02 && vh > 1) {
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = C.accent;
+        ctx.fillRect(x - bw / 2, bottom - vh, bw, Math.max(1, vh * ps));
+      }
+    }
+    ctx.globalAlpha = 1;
+    // bollinger fill
+    if (bbOn) {
+      ctx.beginPath();
+      let started = false;
+      for (let k = startIdx; k <= endIdx; k++) { if (bbU[k] === undefined) continue; const x = xOf(k), y = yOf(bbU[k]); if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y); }
+      for (let k = endIdx; k >= startIdx; k--) { if (bbL[k] === undefined) continue; ctx.lineTo(xOf(k), yOf(bbL[k])); }
+      ctx.closePath();
+      ctx.fillStyle = C.violet; ctx.globalAlpha = 0.07; ctx.fill(); ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = C.violet; ctx.lineWidth = 1; ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    // candles
+    for (let k = startIdx; k <= endIdx; k++) {
+      const c = cs[k];
+      const x = Math.round(xOf(k));
+      const up = c[3] >= c[0];
+      ctx.strokeStyle = ctx.fillStyle = up ? C.up : C.down;
+      const yo = yOf(c[0]), yc = yOf(c[3]), yh = yOf(c[1]), yl = yOf(c[2]);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x + 0.5, yh); ctx.lineTo(x + 0.5, yl); ctx.stroke();
+      const bh = Math.max(1, Math.abs(yc - yo));
+      const by = Math.min(yo, yc);
+      if (bw >= 3) { if (up) { ctx.globalAlpha = 0.9; ctx.fillRect(x - bw / 2 + 0.5, by, bw, bh); ctx.globalAlpha = 1; } else ctx.fillRect(x - bw / 2 + 0.5, by, bw, bh); }
+      else ctx.fillRect(x, by, 1, bh);
+    }
+    // SMAs
+    if (smaOn) {
+      [[smaA, C.accent], [smaB, C.amber]].forEach(([arr, col]) => {
+        ctx.beginPath(); let st = false;
+        for (let k = startIdx; k <= endIdx; k++) { const v = arr[k]; if (v === null || v === undefined) continue; const x = xOf(k), y = yOf(v); if (!st) { ctx.moveTo(x, y); st = true; } else ctx.lineTo(x, y); }
+        ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.globalAlpha = 0.85; ctx.stroke(); ctx.globalAlpha = 1;
+      });
+    }
+    // bot activity
+    if (src.botMarks && a.botMarks && a.botMarks.length) {
+      for (let i = 0; i < a.botMarks.length; i++) {
+        const m = a.botMarks[i];
+        const k = built.idx(m.n);
+        if (k < startIdx || k > endIdx) continue;
+        const c = cs[k];
+        const x = xOf(k) + ((i * 37) % 7 - 3) * Math.min(1, cw / 8);
+        const y = m.s > 0 ? yOf(c[2]) + 7 + (i % 3) * 3 : yOf(c[1]) - 7 - (i % 3) * 3;
+        ctx.fillStyle = m.c; ctx.globalAlpha = 0.7;
+        ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // trade markers
+    if (a.marks) {
+      ctx.textAlign = 'center';
+      a.marks.forEach((m) => {
+        const k = built.idx(m.n);
+        if (k < startIdx || k > endIdx) return;
+        const x = xOf(k);
+        if (m.t === 'N') {
+          // V2: news / announcement impact — a dashed vertical line with a lightning tag
+          const col = m.d > 0 ? C.up : m.d < 0 ? C.down : C.amber;
+          ctx.strokeStyle = col; ctx.globalAlpha = 0.45; ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, top + 14); ctx.lineTo(Math.round(x) + 0.5, bottom); ctx.stroke();
+          ctx.setLineDash([]); ctx.globalAlpha = 1;
+          ctx.font = '700 10px "JetBrains Mono", monospace';
+          ctx.fillStyle = col;
+          ctx.fillText('⚡' + (cw > 5 && m.lb ? ' ' + String(m.lb).slice(0, 14) : ''), x + 2, top + 22);
+          ctx.font = '11px "JetBrains Mono", Consolas, monospace';
+        } else if (m.t === 'L') {
+          const y = Math.max(yOf(cs[k][2]), yOf(m.p)) + 12;
+          tri(ctx, x, y, 6, 1, C.up);
+        } else if (m.t === 'S') {
+          const y = Math.min(yOf(cs[k][1]), yOf(m.p)) - 12;
+          tri(ctx, x, y, 6, -1, C.down);
+        } else {
+          const y = yOf(m.p);
+          ctx.strokeStyle = m.win ? C.up : C.down; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(x - 4, y - 4); ctx.lineTo(x + 4, y + 4); ctx.moveTo(x + 4, y - 4); ctx.lineTo(x - 4, y + 4); ctx.stroke();
+          ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.stroke();
+        }
+      });
+    }
+    // horizontal lines (positions, SL, TP, liq, orders)
+    this.lines = [];
+    ctx.textAlign = 'left';
+    (src.lines || []).forEach((ln) => {
+      if (!(ln.price > 0)) return;
+      const y = Math.round(yOf(ln.price)) + 0.5;
+      if (y < top - 2 || y > bottom + 2) {
+        // off-screen indicator
+        const yy = y < top ? top + 8 : bottom - 8;
+        ctx.fillStyle = ln.color; ctx.font = '10px "JetBrains Mono", monospace';
+        ctx.fillText((y < top ? '▲ ' : '▼ ') + ln.label, 8, yy);
+        return;
+      }
+      ctx.strokeStyle = ln.color; ctx.lineWidth = ln.kind === 'entry' ? 1.5 : 1;
+      ctx.setLineDash(ln.dash || [6, 4]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '600 10px "JetBrains Mono", monospace';
+      const tw = ctx.measureText(ln.label).width + 10;
+      ctx.fillStyle = ln.color; ctx.globalAlpha = 0.18; ctx.fillRect(6, y - 9, tw, 17); ctx.globalAlpha = 1;
+      ctx.strokeStyle = ln.color; ctx.strokeRect(6.5, y - 8.5, tw - 1, 16);
+      ctx.fillStyle = ln.color; ctx.fillText(ln.label, 11, y);
+      axisTag(ctx, plotW, y, U.price(ln.price, dec), ln.color, C.bg);
+      this.lines.push({ y, drag: ln.drag });
+    });
+    // last price
+    const last = cs[cs.length - 1];
+    if (endIdx === cs.length - 1) {
+      const y = Math.round(yOf(a.p)) + 0.5;
+      const col = a.p >= last[0] ? C.up : C.down;
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.6; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      axisTag(ctx, plotW, y, U.price(a.p, dec), col, '#05070b', true);
+      // pulse dot
+      const x = xOf(endIdx);
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+    // RSI panel
+    if (rsiH) {
+      const rt = H - padB - rsiH, rb = H - padB - 2;
+      ctx.strokeStyle = C.grid; ctx.strokeRect(0.5, rt + 0.5, plotW - 1, rb - rt);
+      const ry = (v) => rt + ((100 - v) / 100) * (rb - rt);
+      ctx.fillStyle = C.violet; ctx.globalAlpha = 0.06; ctx.fillRect(0, ry(70), plotW, ry(30) - ry(70)); ctx.globalAlpha = 1;
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = C.mute;
+      [70, 30].forEach((v) => { ctx.beginPath(); ctx.moveTo(0, ry(v) + 0.5); ctx.lineTo(plotW, ry(v) + 0.5); ctx.stroke(); });
+      ctx.setLineDash([]);
+      ctx.beginPath(); let st = false, lastR = null;
+      for (let k = startIdx; k <= endIdx; k++) { const v = rsi(cs, 14, k); if (v === null) continue; lastR = v; const x = xOf(k), y = ry(v); if (!st) { ctx.moveTo(x, y); st = true; } else ctx.lineTo(x, y); }
+      ctx.strokeStyle = C.violet; ctx.lineWidth = 1.3; ctx.stroke();
+      ctx.fillStyle = C.axis; ctx.font = '10px "JetBrains Mono", monospace'; ctx.textAlign = 'left';
+      ctx.fillText('RSI 14' + (lastR !== null ? '  ' + lastR.toFixed(1).replace('.', ',') : ''), 6, rt + 10);
+      if (lastR !== null) { ctx.fillStyle = lastR > 70 ? C.down : lastR < 30 ? C.up : C.axis; ctx.fillText(lastR > 70 ? 'SURACHAT' : lastR < 30 ? 'SURVENTE' : '', 110, rt + 10); }
+    }
+    // crosshair + legend
+    let lc = last, lk = cs.length - 1;
+    if (this.hover && this.hover.x < plotW && this.hover.y > top && this.hover.y < bottom) {
+      const hx = this.hover.x, hy = this.hover.y;
+      const k = Math.round(endIdx - ((plotW - hx) / cw - 0.5 - rightGap + fo));
+      if (k >= startIdx && k <= endIdx) { lc = cs[k]; lk = k; }
+      ctx.strokeStyle = C.axis; ctx.globalAlpha = 0.5; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(0, hy + 0.5); ctx.lineTo(plotW, hy + 0.5); ctx.moveTo(xOf(lk) + 0.5, top); ctx.lineTo(xOf(lk) + 0.5, bottom); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      axisTag(ctx, plotW, hy, U.price(this.yToPrice(hy), dec), C.mute, '#ffffff');
+    }
+    ctx.textAlign = 'left';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    const chg = lc[3] / lc[0] - 1;
+    // narrow screens: keep the legend clear of the price axis
+    const parts = plotW < 340 ? [['C', lc[3]]] : [['O', lc[0]], ['H', lc[1]], ['L', lc[2]], ['C', lc[3]]];
+    let lx = 8;
+    const ly = top + 10;
+    parts.forEach(([k, v]) => {
+      ctx.fillStyle = C.axis; ctx.fillText(k, lx, ly); lx += 10;
+      ctx.fillStyle = chg >= 0 ? C.up : C.down; const t = U.price(v, dec); ctx.fillText(t, lx, ly); lx += ctx.measureText(t).width + 10;
+    });
+    ctx.fillStyle = chg >= 0 ? C.up : C.down;
+    ctx.fillText((chg >= 0 ? '+' : '') + (chg * 100).toFixed(2).replace('.', ',') + ' %', lx, ly);
+    let by = ly + 18;
+    if (ind.regime) {
+      const r = ind.regime;
+      const col = r.cls === 'trend_up' || r.cls === 'euphoria' ? C.up : r.cls === 'trend_down' || r.cls === 'panic' ? C.down : r.cls === 'trap' ? C.amber : C.accent;
+      badge(ctx, 8, by, '● ' + r.name.toUpperCase() + '  ' + Math.round(r.conf * 100) + ' %', col);
+      by += 20;
+    }
+    if (ind.forecast !== undefined && ind.forecast !== null) {
+      const f = ind.forecast;
+      const up = f >= 0.5;
+      badge(ctx, 8, by, (up ? '▲ ' : '▼ ') + Math.round((up ? f : 1 - f) * 100) + ' % ' + (up ? 'HAUSSE' : 'BAISSE') + (plotW < 340 ? ' · 10 S' : ' · PRÉVISION 10 S'), up ? C.up : C.down);
+      by += 20;
+    }
+    if (this.offset >= 0.5) {
+      ctx.textAlign = 'right';
+      badge(ctx, plotW - 8, top + 10, '◀ HISTORIQUE — double-clic pour le DIRECT', C.amber, true);
+    }
+    if (this.pickMode) {
+      ctx.textAlign = 'center';
+      badge(ctx, plotW / 2, bottom - 20, 'CLIQUEZ SUR UN NIVEAU DE PRIX', C.accent, false, true);
+    }
+    if (src.overlay) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = src.overlay.color || C.down; ctx.globalAlpha = 0.07; ctx.fillRect(0, 0, plotW, H); ctx.globalAlpha = 1;
+    }
+    // V2: flash after a big order of yours hit the book
+    const fl = this.flash;
+    if (fl && fl.id === def.id && endIdx === cs.length - 1) {
+      const age = (now - fl.t) / 1000;
+      if (age < 1.6) {
+        const k = 1 - age / 1.6;
+        const x = xOf(endIdx), y = yOf(a.p);
+        const col = fl.side > 0 ? C.up : C.down;
+        ctx.globalAlpha = 0.5 * k; ctx.strokeStyle = col; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, 8 + 26 * (1 - k), 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = k; ctx.fillStyle = col; ctx.textAlign = 'right';
+        ctx.font = '700 12px "JetBrains Mono", monospace';
+        ctx.fillText('IMPACT ' + (fl.side > 0 ? '+' : '−') + (fl.pct * 100).toFixed(2).replace('.', ',') + ' %', x - 14, y - 14 - 10 * (1 - k));
+        ctx.globalAlpha = 1; ctx.lineWidth = 1;
+      } else this.flash = null;
+    }
+  };
+  Chart.prototype.flashImpact = function (id, side, pct) { this.flash = { id, side, pct, t: performance.now() }; this.draw(true); };
+
+  function tri(ctx, x, y, s, dir, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    if (dir > 0) { ctx.moveTo(x, y - s); ctx.lineTo(x - s, y + s * 0.6); ctx.lineTo(x + s, y + s * 0.6); }
+    else { ctx.moveTo(x, y + s); ctx.lineTo(x - s, y - s * 0.6); ctx.lineTo(x + s, y - s * 0.6); }
+    ctx.closePath(); ctx.fill();
+  }
+  function axisTag(ctx, x, y, text, bg, fg, bold) {
+    ctx.font = (bold ? '700 ' : '') + '11px "JetBrains Mono", monospace';
+    const w = ctx.measureText(text).width + 10;
+    ctx.fillStyle = bg;
+    ctx.fillRect(x + 1, y - 9, Math.max(w, 66), 18);
+    ctx.fillStyle = fg;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, x + 5, y + 0.5);
+  }
+  function badge(ctx, x, y, text, col, right, center) {
+    ctx.font = '600 10px "JetBrains Mono", monospace';
+    const w = ctx.measureText(text).width + 12;
+    const bx = right ? x - w : center ? x - w / 2 : x;
+    ctx.fillStyle = col; ctx.globalAlpha = 0.14; ctx.fillRect(bx, y - 8, w, 16); ctx.globalAlpha = 1;
+    ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(text, bx + 6, y + 0.5);
+  }
+})(window.TE);
