@@ -1,0 +1,49 @@
+# Every push to main publishes the game on GitHub Pages (no build step: the game is static).
+# The only transformation is stamping a unique build id into the service worker, so installed PWAs
+# detect each new version and refresh their offline cache.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assemble the site (game files only)
+        run: |
+          BUILD="$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA::7}"
+          mkdir -p _site
+          cp -r index.html css js _site/
+          for f in manifest.webmanifest service-worker.js offline.html icons; do
+            if [ -e "$f" ]; then cp -r "$f" _site/; fi
+          done
+          if [ -f _site/service-worker.js ]; then sed -i "s/__BUILD_ID__/${BUILD}/g" _site/service-worker.js; fi
+          printf '{"build":"%s","commit":"%s"}\n' "$BUILD" "$GITHUB_SHA" > _site/build.json
+          touch _site/.nojekyll
+          echo "Build $BUILD"
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
