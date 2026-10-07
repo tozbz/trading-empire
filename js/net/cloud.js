@@ -291,7 +291,7 @@
   /** Upload the local save. base = cloud revision this device is based on; force = player chose to overwrite. */
   async function push(opts) {
     opts = opts || {};
-    if (!C.enabled() || !C.loggedIn() || busy) return 'skip';
+    if (!C.enabled() || !C.loggedIn() || busy || (TE.Tabs && TE.Tabs.locked)) return 'skip';
     if (pendingConflict && !opts.force) return 'conflict';
     busy = true;
     setStatus('syncing');
@@ -346,6 +346,7 @@
       saveSync({ rev: cur ? cur.revision : 0, checksum: null, forceNext: true });
     } else saveSync({ rev: full.revision, checksum: full.checksum, forceNext: false });
     pendingConflict = null;
+    if (TE.Tabs) TE.Tabs.replaced();
     location.reload();
   }
 
@@ -459,6 +460,8 @@
   /* ---------------- boot gate & scheduling ---------------- */
   /** Called by main.js when the player presses ENTER: checks the cloud first (max ~6 s), then launches. */
   C.gate = function (launch) {
+    // another tab saved since this page loaded its save: reload the latest one instead of starting from a stale copy
+    if (TE.Tabs && TE.Tabs.stale) { location.reload(); return; }
     if (!C.enabled() || !C.loggedIn()) { launch(); C.started(); return; }
     const btn = document.getElementById('boot-enter');
     if (btn) { btn.textContent = '[ VÉRIFICATION DE LA SAUVEGARDE CLOUD… ]'; btn.disabled = true; }
@@ -469,6 +472,7 @@
   };
   C.started = function () {
     C.gameStarted = true;
+    if (TE.Tabs) TE.Tabs.markStarted();
     renderIndicator();
   };
   function afterLogin() {

@@ -176,6 +176,7 @@
     Save.disabled = true;
     if (cur) localStorage.setItem(SAFETY, JSON.stringify({ at: Date.now(), reason: 'avant restauration', json: cur }));
     localStorage.setItem(KEY, c.json);
+    if (TE.Tabs) TE.Tabs.replaced();
     location.reload();
     return true;
   };
@@ -184,6 +185,7 @@
     if (!Save.keepSafetyCopy('avant import')) throw new Error('Espace de stockage insuffisant pour garder une copie de la partie actuelle : import annulé.');
     Save.disabled = true;
     localStorage.setItem(KEY, JSON.stringify(obj));
+    if (TE.Tabs) TE.Tabs.replaced();
     location.reload();
   };
   Save.download = function () {
@@ -199,6 +201,7 @@
     Save.keepSafetyCopy('avant réinitialisation'); // an accidental reset can be undone from the settings
     Save.disabled = true;
     try { localStorage.removeItem(KEY); localStorage.removeItem(BACKUP); } catch (e) { /* ignore */ }
+    if (TE.Tabs) TE.Tabs.replaced();
     location.reload();
   };
 })(window.TE);
