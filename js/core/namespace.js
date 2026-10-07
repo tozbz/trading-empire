@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   const TE = (window.TE = window.TE || {});
-  TE.VERSION = '2.1.0'; // 2.1: web distribution (PWA, offline, cloud save) — gameplay identical to 2.0.0, same save format v2
+  TE.VERSION = '2.1.1'; // 2.1: web distribution (PWA, offline, cloud save), same save format v2 · 2.1.1: UI / contract fixes
   TE.SAVE_VERSION = 2;
   TE.Data = TE.Data || {};
   TE.UI = TE.UI || {};

@@ -132,11 +132,17 @@
       setProg('bigtrade', t.total);
       if (t.crit) bump('crit', 1);
     }
-    setProg('streak', run().account.combo);
+    // the streak contract follows the CURRENT streak (a loss brings it back to 0), like the streak itself
+    const combo = run().account.combo;
+    run().contracts.list.forEach((c) => {
+      if (c.tpl !== 'streak' || c.done) return;
+      c.prog = combo;
+      if (c.prog >= c.target) { c.done = true; complete(c); }
+    });
   });
   TE.Bus.on('earn', (e) => { if (TE.state) { bump('earn', e.amount); if (e.src && e.src !== 'manual' && e.src !== 'reward' && e.src !== 'vc') bump('botprofit', e.amount); } });
   TE.Bus.on('research:done', () => bump('research', 1));
-  TE.Bus.on('opp:claim', () => bump('opps', 1));
+  TE.Bus.on('opp:claim', (r) => { if (!(r && r.expired)) bump('opps', 1); }); // an opportunity left to expire is not "seized"
 
   C.tick = function () {
     const r = run();

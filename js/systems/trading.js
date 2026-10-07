@@ -100,6 +100,9 @@
     if (avail <= 0.01 && pos) return fail('La position a atteint la limite de liquidité du marché (' + U.money(T.maxNotional(id)) + ' de notionnel)');
     let margin = opts.margin !== undefined ? Math.min(opts.margin, avail) : avail * (opts.sizePct || a.sizePct || 1);
     const fr = T.feeRate();
+    // biggest margin this trade could have used (market size cap and cash): the win streak counts trades of a
+    // meaningful size relative to THIS, so it keeps working once the position cap is far below the cash pile
+    const maxMargin = Math.max(1e-9, Math.min(avail, s.run.cash / (1 + lev * fr)));
     if (margin * (1 + lev * fr) > s.run.cash) margin = s.run.cash / (1 + lev * fr);
     if (!(margin > 0.01)) return fail(s.run.cash < 1 ? 'Liquidités insuffisantes' : 'Taille de position trop faible');
     const notional = margin * lev;
@@ -124,7 +127,7 @@
       pos = a.positions[id] = {
         id: a.nextId++, side, units, entry: price, margin, notional, lev, fees: fee, opened: s.run.time, regAtOpen: regCls,
         sl: null, tp: null, trail: null, best: price, greenSince: null, sawCrash: false, legendary: false,
-        marginShare: margin / Math.max(1, s.run.cash + margin),
+        marginShare: margin / maxMargin,
       };
       const lg = s.run.legendary;
       if (lg && lg.asset === id && side > 0 && s.run.time < lg.until) { pos.legendary = true; s.run.legendary = null; }

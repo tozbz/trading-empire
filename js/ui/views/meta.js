@@ -21,6 +21,7 @@
     switch (c.tpl) {
       case 'earn': case 'botprofit': case 'aum': case 'bigtrade': return U.money(Math.min(c.prog, c.target)) + ' / ' + U.money(c.target);
       case 'hold': return Math.floor(Math.min(c.prog, c.target)) + ' s / ' + c.target + ' s';
+      case 'streak': return 'Série en cours : ' + U.int(Math.min(c.prog, c.target)) + ' / ' + U.int(c.target) + ' · trades tenus ≥ 3 s ; une perte remet à zéro';
       default: return U.int(Math.min(c.prog, c.target)) + ' / ' + U.int(c.target);
     }
   }

@@ -451,7 +451,7 @@
       if (o.cur.left <= 0) {
         const cur = o.cur;
         o.cur = null; o.next = U.range(70, 140) / TE.Mods.get('opp.freq');
-        if (cur.id === 'poach') { const txt = poachResolve(cur, 'let'); TE.Bus.emit('opp:claim', { def: D.OPP_MAP.poach, text: txt, bad: true }); }
+        if (cur.id === 'poach') { const txt = poachResolve(cur, 'let'); TE.Bus.emit('opp:claim', { def: D.OPP_MAP.poach, text: txt, bad: true, expired: true }); }
         TE.Bus.emit('opp:expire');
       }
       return;
