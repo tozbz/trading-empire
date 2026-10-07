@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   const TE = (window.TE = window.TE || {});
-  TE.VERSION = '2.0.0'; // 2.0: living financial world (save format v2, v1 saves migrate automatically)
+  TE.VERSION = '2.1.0'; // 2.1: web distribution (PWA, offline, cloud save) — gameplay identical to 2.0.0, same save format v2
   TE.SAVE_VERSION = 2;
   TE.Data = TE.Data || {};
   TE.UI = TE.UI || {};
